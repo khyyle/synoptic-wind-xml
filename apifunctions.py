@@ -12,7 +12,7 @@ import re
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
     print()
-    print("IMPORTANT INFO")
+    print("IMPORTANT INFO:")
     print("", "enter \"latlon\" to enter latitude, longitude coordinates", "\n", "enter \"utm\" to enter in UTM coordinates", "\n", "enter \"stationid\" to enter a station id")
     input_type = str(input("What type of entry would you like to input?:")).lower()
     print("_" * 40)
