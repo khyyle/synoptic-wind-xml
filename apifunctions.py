@@ -29,7 +29,7 @@ def determine_entry():
         stid = determine_nearest_stid(lat, lon)
         return stid
     elif input_type == "utm": 
-        print("IMPORTANT INFO")
+        print("IMPORTANT INFO:")
         print("please enter with a space in between and no extra spaces")
         print("format:<zone> <easting> <northing>")
         user_input = str(input("enter UTM coordinates:"))
