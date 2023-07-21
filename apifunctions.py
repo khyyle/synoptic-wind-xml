@@ -8,7 +8,8 @@ import requests
 import xml.dom.minidom as xdm
 import re
 
-
+#testing branch and merging.
+print()
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
     print()
