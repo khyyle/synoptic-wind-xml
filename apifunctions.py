@@ -6,7 +6,9 @@ import pandas as pd
 import xml.etree.ElementTree as ET 
 import requests 
 import xml.dom.minidom as xdm
-import re
+import geojson
+import numpy as np
+import matplotlib.path as mplPath
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -222,15 +224,76 @@ def save_to_xml(result):
     
 
 
-def convert_utm_to_lat_lon(coordinates):
+def convert_utm_to_lat_lon(coordinates, extendeast=None, extendnorth=None):
     parts = coordinates.split()
     zone = parts[0].rstrip('CDEFGHJKLMNPQRSTUVWXYZ')
     easting = parts[1].rstrip('E')
     northing = parts[2].rstrip('N')
 
+    if extendeast or extendnorth:
+        easting = int(easting)
+        northing = int(northing)
+
+        easting += extendeast
+        northing += extendnorth
+
+        easting = str(easting)
+        northing = str(northing)
+    
+
     utm_proj = pyproj.Proj(proj='utm', zone=zone, ellps='WGS84')
     lon, lat = utm_proj(float(easting), float(northing), inverse=True)
     return lat, lon
+
+#return list of station ids available within a domain 
+def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
+    UTMentry = input("enter in UTM coordinates for southwest corner:")
+    extendeast = input("enter east extension (in meters):")
+    extendnorth = input("enter north extension (in meters):")
+
+    SWlat, SWlon = convert_utm_to_lat_lon(UTMentry)
+    print("finding stations between southwest corner: ", SWlat, SWlon)
+    NElat, NElon = convert_utm_to_lat_lon(UTMentry, extendeast, extendnorth)
+    print("and northeast corner: ", NElat, NElon)
+
+#set up polygon object which will function as the domain to find stations in 
+    poly_path = [
+        [SWlon, SWlat],
+        [SWlon, NElat],
+        [NElon, NElat],
+        [NElon, SWlat],
+        [SWlon, SWlat]
+    ]
+
+    params = {
+        "token": "REDACTED",
+        "polygon": json.dumps((poly_path))
+    }
+
+#iterate through results and append the station id of the stations that are within the given domain
+    response = requests.get("https://api.synopticdata.com/v2/stations/latest", params = params)
+    if response.status_code == 200:
+        stations_data = response.json()
+        filtered_stations = []
+        for station in stations_data["STATION"]:
+            longitude = station["LONGITUDE"]
+            longitude = float(longitude)
+            latitude = station["LATITUDE"]
+            latitude = float(latitude)
+            point = (longitude, latitude)
+            containstrue = contains(poly_path, point)
+            if containstrue == True:
+                filtered_stations.append(station['STID'])
+        return filtered_stations    
+    if not filtered_stations: 
+        raise ValueError("no stations found within specified domain")
+
+#determine if the current station is within the specified domain
+def contains(polygon_coordinates, point):
+    polygon=mplPath.Path(polygon_coordinates)
+
+    return polygon.contains_point(point)
+            
 
 
 def calculate_distance(lat1, lon1, lat2, lon2):
