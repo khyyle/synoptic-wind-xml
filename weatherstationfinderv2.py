@@ -1,5 +1,5 @@
 import apifunctions as myfunc
-
+ 
 #determine latitude, longitude, and whether a station id is being used or not
 stid = myfunc.determine_entry()
 
