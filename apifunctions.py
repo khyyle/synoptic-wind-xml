@@ -248,8 +248,8 @@ def convert_utm_to_lat_lon(coordinates, extendeast=None, extendnorth=None):
 #return list of station ids available within a domain 
 def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
     UTMentry = input("enter in UTM coordinates for southwest corner:")
-    extendeast = input("enter east extension (in meters):")
-    extendnorth = input("enter north extension (in meters):")
+    extendeast = float(input("enter east extension (in meters):"))
+    extendnorth = float(input("enter north extension (in meters):"))
 
     SWlat, SWlon = convert_utm_to_lat_lon(UTMentry)
     print("finding stations between southwest corner: ", SWlat, SWlon)
