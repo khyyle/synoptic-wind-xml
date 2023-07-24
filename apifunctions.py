@@ -64,7 +64,7 @@ def determine_nearest_stid(lat, lon):
 
     response = requests.get('https://api.synopticdata.com/v2/stations/latest', params = {
         'token': 'REDACTED', 
-        'network': network, 
+        #'network': network, 
         'format': "json", 
         'radius': [lat, lon, 25], 
         'vars': 'wind_speed,wind_direction,air_temp,dew_point_temperature'}) #1, 2, 4, 10, 14
@@ -91,21 +91,17 @@ def apirequest(stid, start, end):
     start = input("Enter a starting date and time to pull wind data from (YYYYmmddHHMM):")
     end = input("Enter a end date and time to pull wind data from (YYYYmmddHHMM):")
     '''
-    
-    network = ""
-    for i in range(1, 282):
-        network += f"{i}, "
-
-    network = network[:-2]
 
     params = {
         'stid': stid,
         'token': 'REDACTED',
-        'network': network, #1, 2, 4, 10, 14
+        #'network': 'all_public', #!70, !148, !203, !258, !262, !1008, !2000, !3000, !3001, !3003, !3005, !3006, !3007, !3008, !3009, !3010, !3011, !3012, !3013, !3014, !3016, !3017, !3018, !3019, !3020, !3021, !3022
         'format': "json",
         'vars': 'wind_speed,wind_direction,air_temp,dew_point_temperature',
         'START': start, 
-        'END': end 
+        'END': end, 
+        'qc_checks': "basic",
+        'qc':'on'
     }
     
     response = requests.get('https://api.synopticdata.com/v2/stations/timeseries', params=params)
@@ -119,16 +115,23 @@ def apirequest(stid, start, end):
 
 #------------------------------------------------------------------------------
 
-def save_to_xml(result, choice):
+def save_to_xml(result, choice, folder_name):
+
+#important: use the following line in implementation of this function
+    '''
+    folder_path = input("Enter the folder path to save the XML files:")
+    '''
 
     if result:
+
         root = ET.Element('sensor')
 
         name = result["STATION"][0]['NAME']
         id = result["STATION"][0]['STID']
+        
 
-        root.append(ET.Comment("Station Name: {}".format(result["STATION"][0]['NAME'])))
-        root.append(ET.Comment("Station ID: {}".format(result["STATION"][0]['STID'])))
+        root.append(ET.Comment("Station Name: {}".format(name)))
+        root.append(ET.Comment("Station ID: {}".format(id)))
             
         site_latitude = ET.SubElement(root, 'site_latitude') #determine latitude value and add it as subelemenet
         site_latitude.text = result["STATION"][0]["LATITUDE"]
@@ -140,6 +143,31 @@ def save_to_xml(result, choice):
         site_coord_flag.text = '3' #location of site in program determined by lat/lon
 
         observations = result["STATION"][0]['OBSERVATIONS'] 
+        
+        #determine if the station contains data for wind direction and speed
+        time_series = ET.SubElement(root, 'timeSeries')
+        try:
+                direction = ET.SubElement(time_series, 'direction')
+                direction.text = str(observations['wind_direction_set_1'])
+                global windtrue
+                windtrue = True
+        except KeyError:
+                windtrue = False
+                print()
+                print(f"*CAUTION* station: {id} does not record wind speed values (possibly for the given interval)")
+                print("all values set to none")
+                
+        try:
+                speed = ET.SubElement(time_series, 'speed')
+                speed.text = str(observations['wind_speed_set_1'])
+                global speedtrue
+                speedtrue = True
+        except KeyError:
+                speedtrue = False
+                print()
+                print(f"*CAUTION* station: {id} does not record wind speed values")
+                print("all values set to none")
+
         for i in range(len(observations['date_time'])): #iterate through the timestamp and sensor variable lists so values can be output under their respective timestamp
             time_series = ET.SubElement(root, 'timeSeries')
 
@@ -157,16 +185,25 @@ def save_to_xml(result, choice):
 
             height = ET.SubElement(time_series, 'height')
             height.text = '10.0'
+            
+            if speedtrue:
+                speed = ET.SubElement(time_series, 'speed')
+                speed.text = str(observations['wind_speed_set_1'][i])
+            else:
+                speed = ET.SubElement(time_series, 'speed')
+                speed.text = 'none'
+            
+            if windtrue == True:
+                direction = ET.SubElement(time_series, 'direction')
+                direction.text = str(observations['wind_direction_set_1'][i])
+            else:
+                direction = ET.SubElement(time_series, 'direction')
+                direction.text = 'none'
 
-            speed = ET.SubElement(time_series, 'speed')
-            speed.text = str(observations['wind_speed_set_1'][i])
-
-            direction = ET.SubElement(time_series, 'direction')
-            direction.text = str(observations['wind_direction_set_1'][i])
                 
             tree = ET.ElementTree(root)
     else: 
-        raise ValueError("no data found for specified station. ensure you input the correct station id(s)")
+        raise ValueError("no data found for specified station")
 
     print()
     
@@ -185,7 +222,11 @@ def save_to_xml(result, choice):
     
     
     if decision == True:
-        filename = f"{id}.xml"
+        
+        #create a new folder to store the xml files in
+        os.makedirs(folder_name, exist_ok=True) 
+        
+        filename = os.path.join(folder_name, f"{id}.xml")
         with open(filename, 'wb') as file:
             tree.write(file, encoding="utf-8", xml_declaration=True)
         print("XML file created", "\n", f"Name: {filename}")
@@ -217,7 +258,7 @@ def convert_utm_to_lat_lon(coordinates, extendeast=None, extendnorth=None):
 
 #return list of station ids available within a domain 
 def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
-    UTMentry = input("enter in UTM coordinates for southwest corner:")
+    UTMentry = input("enter in UTM coordinates for southwest corner (<zone> <easting> <northing>):")
     extendeast = float(input("enter east extension (in meters):"))
     extendnorth = float(input("enter north extension (in meters):"))
 
