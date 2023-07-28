@@ -9,6 +9,9 @@ import xml.dom.minidom as xdm
 import geojson
 import numpy as np
 import matplotlib.path as mplPath
+import datetime
+import time
+import matplotlib as mpl
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -97,7 +100,7 @@ def apirequest(stid, start, end):
         'token': 'REDACTED',
         #'network': 'all_public', #!70, !148, !203, !258, !262, !1008, !2000, !3000, !3001, !3003, !3005, !3006, !3007, !3008, !3009, !3010, !3011, !3012, !3013, !3014, !3016, !3017, !3018, !3019, !3020, !3021, !3022
         'format': "json",
-        'vars': 'wind_speed,wind_direction,air_temp,dew_point_temperature',
+        'vars': 'wind_speed,wind_direction',
         'START': start, 
         'END': end, 
         'qc_checks': "basic",
@@ -111,6 +114,18 @@ def apirequest(stid, start, end):
     else:
         print(response.status_code)
     #print(json.dumps(result, indent=4))
+
+    #i know you (fabien) said not to use global variables, but having these will help me out with interpolation and make the code easier to be reused
+    #also these variables will not be updated at all so it wont add to confusion :)
+    global time_set
+    time_set = result["STATION"][0]["OBSERVATIONS"]["date_time"]
+
+    global wind_speed_set
+    wind_speed_set = result["STATION"][0]["OBSERVATIONS"]["wind_speed_set_1"]
+
+    global wind_direction_set
+    wind_direction_set = result["STATION"][0]["OBSERVATIONS"]["wind_direction_set_1"]
+
     return result 
 
 #------------------------------------------------------------------------------
@@ -128,6 +143,7 @@ def save_to_xml(result, choice, folder_name):
 
         name = result["STATION"][0]['NAME']
         id = result["STATION"][0]['STID']
+
         
 
         root.append(ET.Comment("Station Name: {}".format(name)))
@@ -256,6 +272,176 @@ def convert_utm_to_lat_lon(coordinates, extendeast=None, extendnorth=None):
     lon, lat = utm_proj(float(easting), float(northing), inverse=True)
     return lat, lon
 
+def convert_to_epoch_time_utc(times):
+    if type(times) == list:
+        epoch_set = []
+        for time in times:
+            time_obj = datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%SZ")
+            epoch_time = time_obj.timestamp()
+            epoch_set.append(epoch_time)
+        return epoch_set
+    else:
+        time_obj = datetime.datetime.strptime(times, "%Y-%m-%dT%H:%M:%SZ")
+        epoch_time = time_obj.timestamp()
+        return epoch_time
+
+def epoch_to_utc_time(epoch_time):
+    try:
+        # Convert epoch_time to a datetime object in UTC timezone
+        utc_datetime = datetime.utcfromtimestamp(epoch_time)
+
+        # Format the datetime object as "YYYYmmDDHHMM"
+        formatted_time = utc_datetime.strftime("%Y%m%d%H%M")
+
+        return formatted_time
+    except ValueError:
+        # Handle any possible errors in case of invalid input
+        return None
+    
+def interpolate_wind_speed (stid, start, end):
+    interval = int(input("enter desired interval for wind speeds and directions (in full minutes):"))
+    interval = interval * 60
+    epoch_set = convert_to_epoch_time_utc(time_set)
+    print("original values", epoch_set)
+
+    #determine all of the timestamps that we'll want to interpolate to find
+    
+    
+
+    #if the timestamp for the specified interval already exists append its value to the windspeed list 
+    #if not then interpolate
+    wind_speed_set_interpolated = []     
+    counter1 = 0 
+    counter2 = 0 
+
+    normalstation = None
+
+    start_formatted = start[0] + start[1] + start[2] + start[3] + "-" +start[4]+start[5] + "-" +start[6] +start[7] + "T" + start[8] +start[9] + ":" + start[10] + start[11] + ":00Z"
+    end_formatted = end[0] + end[1] + end[2] + end[3] + "-" + end[4] + end[5] + "-" + end[6] + end[7] + "T" + end[8] + end[9] + ":" + end[10] + end[11] + ":00Z"
+
+    start_epoch = convert_to_epoch_time_utc(start_formatted)
+    end_epoch = convert_to_epoch_time_utc(end_formatted)
+    time_set_epoch0 = convert_to_epoch_time_utc(time_set[0]) 
+    time_set_epoch1 = convert_to_epoch_time_utc(time_set[-1])
+    if start_epoch == time_set_epoch0 and end_epoch == time_set_epoch1:
+        normalstation = True
+    else:
+        normalstation = False
+    
+    if normalstation == True:
+        new_time_set = []
+        i = 0
+        new_time = 0
+        while new_time < epoch_set[-1]:
+            new_time = epoch_set[0] + (i * interval)
+            new_time_set.append(new_time)
+            i += 1  
+        for time in new_time_set:
+            if counter2 < len(epoch_set) and time == epoch_set[counter2]:
+                wind_speed_set_interpolated.append(wind_speed_set[counter1])
+                counter2 += 1
+                counter1 += 1
+                continue
+            else: 
+                interpolated_speed = np.interp(time, epoch_set, wind_speed_set)
+                wind_speed_set_interpolated.append(interpolated_speed)
+                counter2 += 1
+                
+            
+            print(counter1, counter2)
+            
+        return wind_speed_set_interpolated, new_time_set, wind_speed_set, convert_to_epoch_time_utc(time_set) #, wind_direction_set_interpolated
+    else: #if it is a weird station extrapolate to find wind values for the start and end then find everything in between
+        
+        new_time_set = []
+        current_time = start_epoch
+        while current_time < end_epoch:
+            new_time_set.append(current_time)
+
+            current_time += interval
+        else:
+            new_time_set.append(end_epoch)
+
+
+        
+             
+        
+        print("WEIRD STATION TIMESET", new_time_set)
+        
+        for time in new_time_set:
+            if counter2 < len(epoch_set) and time == epoch_set[counter2]:
+                wind_speed_set_interpolated.append(wind_speed_set[counter1])
+                counter2 += 1
+                counter1 += 1
+                continue
+            elif time < epoch_set[counter1]:
+                x1, x2 = epoch_set[0], epoch_set[1]
+                y1, y2 = wind_speed_set[0], wind_speed_set[1]
+
+                slope = (y2 - y1) / (x2 - x1)
+
+                extrapolated_speed = y1 + slope * (time - x1)
+                wind_speed_set_interpolated.append(extrapolated_speed)
+                counter2 += 1
+                continue
+            elif time > epoch_set[counter1]:
+                x1, x2 = epoch_set[-2], epoch_set[-1]
+                y1, y2 = wind_speed_set[-2], wind_speed_set[-1]
+
+                slope = (y2 - y1) / (x2 - x1)
+
+                extrapolated_speed = y1 + slope * (time - x1)
+                wind_speed_set_interpolated.append(extrapolated_speed)
+                counter2 += 1
+                continue
+            else: 
+                interpolated_speed = np.interp(time, epoch_set, wind_speed_set)
+                wind_speed_set_interpolated.append(interpolated_speed)
+                counter2 += 1
+
+
+            if time_set_epoch0 != start_epoch:
+                new_time_set.insert(0, start_epoch)
+                start_val = extrapolate(epoch_set[0], epoch_set[1], wind_speed_set[0],wind_speed_set[1], start_epoch)
+                wind_speed_set_interpolated.insert(0,start_val)
+        
+            if time_set_epoch1 != end_epoch:
+                new_time_set.append(end_epoch)
+                end_val = extrapolate(epoch_set[-2], epoch_set[-1], wind_speed_set[-2], wind_speed_set[-1], end_epoch)
+                wind_speed_set_interpolated.append(end_val)
+        
+            print(new_time_set)
+            return wind_speed_set_interpolated, new_time_set, wind_speed_set, convert_to_epoch_time_utc(time_set)
+    
+#---------------------------------------------------------------------------------------------------------------------        
+    
+    
+
+def extrapolate(x_known, x_known2, y_known, y_known2, x_target):
+    x1, x2 = x_known, x_known2
+    y1, y2 = y_known, y_known2
+
+    slope = (y2 - y1)/ (x2 - x1) 
+
+    y_target = y1 + slope * (x_target - x1) 
+
+    return y_target
+'''
+if were avoid using extrapolation use this
+ elif time > epoch_set[-1]:
+                start = epoch_to_utc_time(epoch_set[-1])
+                end = epoch_set[-1] + 7200 #add 2 hours to the last time in the original time set. 
+                end = convert_to_epoch_time_utc(end)
+                result = apirequest(stid, start, end)
+                print(result)
+
+                wind_speed_set2 = result["STATION"][0]["OBSERVATIONS"]["wind_speed_set_1"]
+                time_set2 = result["STATION"][0]["OBSERVATIONS"]["date_time"]
+
+                epoch_time_set2 = convert_to_epoch_time_utc(time_set2)
+                interpolated_speed = np.interp(time, epoch_time_set2 ,wind_speed_set2)
+                counter2 += 1
+'''
 #return list of station ids available within a domain 
 def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
     UTMentry = input("enter in UTM coordinates for southwest corner (<zone> <easting> <northing>):")
