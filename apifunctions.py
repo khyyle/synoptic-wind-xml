@@ -12,6 +12,7 @@ import matplotlib.path as mplPath
 import datetime
 import time
 import matplotlib as mpl
+from scipy.interpolate import interp1d
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -328,6 +329,8 @@ def interpolate_wind_speed (stid, start, end):
     else:
         normalstation = False
     
+    print(normalstation)
+    
     if normalstation == True:
         new_time_set = []
         i = 0
@@ -349,73 +352,193 @@ def interpolate_wind_speed (stid, start, end):
                 
             
             print(counter1, counter2)
-            
-        return wind_speed_set_interpolated, new_time_set, wind_speed_set, convert_to_epoch_time_utc(time_set) #, wind_direction_set_interpolated
-    else: #if it is a weird station extrapolate to find wind values for the start and end then find everything in between
-        
-        new_time_set = []
-        current_time = start_epoch
-        while current_time < end_epoch:
-            new_time_set.append(current_time)
 
+    #---------------------------------------------------------------------------------------------------------------------
+        #handle interpolation for wind directions
+
+        wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
+        wind_vectors = np.array(wind_vectors)
+
+        epoch_set = np.array(epoch_set)
+        
+        f_u = interp1d(epoch_set, wind_vectors[:, 0], kind='linear')
+        f_v = interp1d(epoch_set, wind_vectors[:, 1], kind='linear')
+
+        interpolate_u = f_u(new_time_set)
+        interpolate_v = f_v(new_time_set)
+
+        interpolated_wind_vectors = np.column_stack((interpolate_u, interpolate_v))
+
+        interpolated_directions = [vector_to_wind_direction(vector[0], vector[1]) for vector in interpolated_wind_vectors]
+            
+        return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, interpolated_directions, wind_direction_set
+    else: #handle interpolation for weird stations
+        print("------------WARNING------------ ")
+        print(f"station:{stid} requires extrapolation")
+        print()
+
+        
+        wind_direction_set_interpolated_weird = []
+
+        wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set] 
+        wind_vectors = np.array(wind_vectors)
+        print("WIND VECTORS:", wind_vectors)
+        #epoch_set = np.array(epoch_set)
+        
+        new_time_set_weird = []
+        current_time = start_epoch
+        counter3 = 0
+        while current_time < end_epoch:
+            if current_time not in epoch_set:  # Check if the timestamp is missing in the retrieved data
+                new_time_set_weird.append(current_time)
+            else:
+                new_time_set_weird.append(epoch_set[counter3])
+                counter3 += 1
             current_time += interval
         else:
-            new_time_set.append(end_epoch)
+            new_time_set_weird.append(end_epoch)
+            
+        print(new_time_set_weird)            
+        
 
 
+        #current_time = start_epoch
+        #while current_time < end_epoch:
+          #  new_time_set_weird.append(current_time)
+         #   current_time += interval
+        #new_time_set_weird.append(end_epoch)
         
-             
-        
-        print("WEIRD STATION TIMESET", new_time_set)
-        
-        for time in new_time_set:
-            if counter2 < len(epoch_set) and time == epoch_set[counter2]:
-                wind_speed_set_interpolated.append(wind_speed_set[counter1])
-                counter2 += 1
-                counter1 += 1
+        #interpolate or extrapolate where needed
+        counter1_weird = 0
+        counter2_weird = 0
+        for time in new_time_set_weird:
+            print("current time", time)
+            if counter1_weird < len(epoch_set) and time == epoch_set[counter1_weird]:
+                '''counter2_weird < len(epoch_set) and''' 
+                wind_speed_set_interpolated.append(wind_speed_set[counter1_weird])
+                wind_direction_set_interpolated_weird.append(wind_direction_set[counter1_weird])
+                print("VALUE EXISTS")
+                print(wind_direction_set_interpolated_weird)
+                print()
+                
+                counter2_weird += 1
+                counter1_weird += 1
+                print(counter1_weird, counter2_weird)
                 continue
-            elif time < epoch_set[counter1]:
+            elif time < epoch_set[0]:
+                print("EPOCHTIME", epoch_set[0])
                 x1, x2 = epoch_set[0], epoch_set[1]
                 y1, y2 = wind_speed_set[0], wind_speed_set[1]
-
+                y1_u, y2_u =  wind_vectors[0][0], wind_vectors[1][0] #for wind direction
+                y1_v, y2_v = wind_vectors[0][1], wind_vectors[1][1]
+                
                 slope = (y2 - y1) / (x2 - x1)
-
+                
                 extrapolated_speed = y1 + slope * (time - x1)
+                extrapolated_u = y1_u + ((y2_u - y1_u) / (x2 - x1)) * (time - x1)
+                print(extrapolated_u)
+                extrapolated_v = y1_v + ((y2_v - y1_v) / (x2 - x1)) * (time - x1)
+                print(extrapolated_v)
+
                 wind_speed_set_interpolated.append(extrapolated_speed)
-                counter2 += 1
+                wind_direction_set_interpolated_weird.append(vector_to_wind_direction(extrapolated_u, extrapolated_v))
+                counter2_weird += 1
+                print("EXTRAPOLATION PERFORMED (BEFORE)")
+                print()
+                print(counter1_weird, counter2_weird)
                 continue
-            elif time > epoch_set[counter1]:
+            elif time > epoch_set[-1]:
+                print("EPOCHTIME", epoch_set[-1])
                 x1, x2 = epoch_set[-2], epoch_set[-1]
                 y1, y2 = wind_speed_set[-2], wind_speed_set[-1]
+                y1_u, y2_u =  wind_vectors[-2][0], wind_vectors[-1][0] #for wind direction
+                y1_v, y2_v = wind_vectors[-2][1], wind_vectors[-1][1] 
 
                 slope = (y2 - y1) / (x2 - x1)
+                 
 
                 extrapolated_speed = y1 + slope * (time - x1)
+                extrapolated_u = y1_u + ((y2_u - y1_u) / (x2 - x1)) * (time - x1)
+                extrapolated_v = y1_v + ((y2_v - y1_v) / (x2 - x1)) *(time - x1)
+
                 wind_speed_set_interpolated.append(extrapolated_speed)
-                counter2 += 1
+                wind_direction_set_interpolated_weird.append(vector_to_wind_direction(extrapolated_u, extrapolated_v))
+                print(wind_direction_set_interpolated_weird)
+                counter2_weird += 1
+                print("EXTRAPOLATION PERFORMED(AFTER)")
+                print()
+                print(counter1_weird, counter2_weird)
                 continue
-            else: 
+
+            else:
+                #interpolate wind speed 
                 interpolated_speed = np.interp(time, epoch_set, wind_speed_set)
                 wind_speed_set_interpolated.append(interpolated_speed)
-                counter2 += 1
+                #interpolated wind direction
+
+                f_u = interp1d(epoch_set, wind_vectors[:, 0], kind='linear')
+                f_v = interp1d(epoch_set, wind_vectors[:, 1], kind='linear')
+                interpolated_u = f_u(time)
+                print(interpolated_u)
+                interpolated_v = f_v(time)
+                print(interpolated_v)
+                wind_direction_set_interpolated_weird.append(vector_to_wind_direction(interpolated_u, interpolated_v))
+                print(wind_direction_set_interpolated_weird)
+
+                counter2_weird += 1
+                print("INTERPOLATION PERFORMED")
+                print()
+            
+            print(counter1_weird, counter2_weird)
+
+        
+            #add missing start and end time and extrapolate to find their respective values
+            '''
+        if time_set_epoch0 != start_epoch:
+            #new_time_set_weird.insert(0, start_epoch)
+            start_val = extrapolate(epoch_set[0], epoch_set[1], wind_speed_set[0],wind_speed_set[1], start_epoch)
+            start_val_dir = extrapolate(epoch_set[0], epoch_set[1], wind_direction_set[0], wind_direction_set[1], start_epoch)
+            wind_speed_set_interpolated.insert(0,start_val)
+            wind_direction_set_interpolated_weird.insert(0, start_val_dir)
+            
+        
+        if time_set_epoch1 != end_epoch:
+            #new_time_set_weird.append(end_epoch)
+            end_val = extrapolate(epoch_set[-2], epoch_set[-1], wind_speed_set[-2], wind_speed_set[-1], end_epoch)
+            end_val_dir = extrapolate(epoch_set[-2], epoch_set[-1], wind_direction_set[-2], wind_direction_set[-1], end_epoch)
+            wind_speed_set_interpolated.append(end_val)
+            wind_direction_set_interpolated_weird.append(end_val_dir)
+            
+'''
+        return wind_speed_set_interpolated, new_time_set_weird, wind_speed_set, epoch_set, wind_direction_set_interpolated_weird, wind_direction_set
+    
 
 
-            if time_set_epoch0 != start_epoch:
-                new_time_set.insert(0, start_epoch)
-                start_val = extrapolate(epoch_set[0], epoch_set[1], wind_speed_set[0],wind_speed_set[1], start_epoch)
-                wind_speed_set_interpolated.insert(0,start_val)
-        
-            if time_set_epoch1 != end_epoch:
-                new_time_set.append(end_epoch)
-                end_val = extrapolate(epoch_set[-2], epoch_set[-1], wind_speed_set[-2], wind_speed_set[-1], end_epoch)
-                wind_speed_set_interpolated.append(end_val)
-        
-            print(new_time_set)
-            return wind_speed_set_interpolated, new_time_set, wind_speed_set, convert_to_epoch_time_utc(time_set)
-    
-#---------------------------------------------------------------------------------------------------------------------        
-    
-    
+def wind_direction_to_vector(wind_direction_degrees):
+    # Convert degrees to radians
+    wind_direction_radians = math.radians(wind_direction_degrees)
+
+    # Calculate the x and y components of the wind vector
+    wind_vector_x = math.cos(wind_direction_radians)
+    wind_vector_y = math.sin(wind_direction_radians)
+
+    # Return the wind vector as a tuple (x, y)
+    return wind_vector_x, wind_vector_y
+
+#-------------------------------------------------------------------------------------
+
+def vector_to_wind_direction(wind_vector_x, wind_vector_y):
+    # Calculate the wind direction in radians
+    wind_direction_radians = math.atan2(wind_vector_y, wind_vector_x)
+
+    wind_direction_degrees = math.degrees(wind_direction_radians)
+
+    # Ensure the wind direction is within [0, 360) degrees
+    wind_direction_degrees = (wind_direction_degrees + 360) % 360
+
+    return wind_direction_degrees
+
+#-------------------------------------------------------------------------------------
 
 def extrapolate(x_known, x_known2, y_known, y_known2, x_target):
     x1, x2 = x_known, x_known2
@@ -442,6 +565,9 @@ if were avoid using extrapolation use this
                 interpolated_speed = np.interp(time, epoch_time_set2 ,wind_speed_set2)
                 counter2 += 1
 '''
+
+#-------------------------------------------------------------------------------------
+
 #return list of station ids available within a domain 
 def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
     UTMentry = input("enter in UTM coordinates for southwest corner (<zone> <easting> <northing>):")
@@ -485,6 +611,8 @@ def find_stations_in_region(UTMentry=None, extendeast=None, extendnorth=None):
     if not filtered_stations: 
         raise ValueError("no stations found within specified domain")
 
+#-------------------------------------------------------------------------------------
+
 #determine if the current station is within the specified domain
 def contains(polygon_coordinates, point):
     polygon=mplPath.Path(polygon_coordinates)
@@ -497,8 +625,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     R = 3959
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(
-        dlon / 2) * math.sin(dlon / 2)
+    a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) * math.sin(dlon / 2)
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     distance = R * c
     return distance
