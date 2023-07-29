@@ -127,6 +127,13 @@ def apirequest(stid, start, end):
     global wind_direction_set
     wind_direction_set = result["STATION"][0]["OBSERVATIONS"]["wind_direction_set_1"]
 
+    none_indices = [i for i, (value1, value2) in enumerate(zip(wind_speed_set, wind_direction_set)) if value1 is None or value2 is None]
+    
+    for index in reversed(none_indices):
+        del time_set[index]
+        del wind_speed_set[index]
+        del wind_direction_set[index]
+
     return result 
 
 #------------------------------------------------------------------------------
@@ -299,16 +306,10 @@ def epoch_to_utc_time(epoch_time):
         # Handle any possible errors in case of invalid input
         return None
     
-def interpolate_wind_speed (stid, start, end):
-    interval = int(input("enter desired interval for wind speeds and directions (in full minutes):"))
+def interpolate_wind_speed (interval, stid, start, end):
     interval = interval * 60
     epoch_set = convert_to_epoch_time_utc(time_set)
-    print("original values", epoch_set)
-
-    #determine all of the timestamps that we'll want to interpolate to find
     
-    
-
     #if the timestamp for the specified interval already exists append its value to the windspeed list 
     #if not then interpolate
     wind_speed_set_interpolated = []     
@@ -329,8 +330,6 @@ def interpolate_wind_speed (stid, start, end):
     else:
         normalstation = False
     
-    print(normalstation)
-    
     if normalstation == True:
         new_time_set = []
         i = 0
@@ -350,8 +349,6 @@ def interpolate_wind_speed (stid, start, end):
                 wind_speed_set_interpolated.append(interpolated_speed)
                 counter2 += 1
                 
-            
-            print(counter1, counter2)
 
     #---------------------------------------------------------------------------------------------------------------------
         #handle interpolation for wind directions
@@ -382,8 +379,6 @@ def interpolate_wind_speed (stid, start, end):
 
         wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set] 
         wind_vectors = np.array(wind_vectors)
-        print("WIND VECTORS:", wind_vectors)
-        #epoch_set = np.array(epoch_set)
         
         new_time_set_weird = []
         current_time = start_epoch
@@ -397,11 +392,7 @@ def interpolate_wind_speed (stid, start, end):
             current_time += interval
         else:
             new_time_set_weird.append(end_epoch)
-            
-        print(new_time_set_weird)            
-        
-
-
+                    
         #current_time = start_epoch
         #while current_time < end_epoch:
           #  new_time_set_weird.append(current_time)
@@ -412,21 +403,15 @@ def interpolate_wind_speed (stid, start, end):
         counter1_weird = 0
         counter2_weird = 0
         for time in new_time_set_weird:
-            print("current time", time)
             if counter1_weird < len(epoch_set) and time == epoch_set[counter1_weird]:
                 '''counter2_weird < len(epoch_set) and''' 
                 wind_speed_set_interpolated.append(wind_speed_set[counter1_weird])
                 wind_direction_set_interpolated_weird.append(wind_direction_set[counter1_weird])
-                print("VALUE EXISTS")
-                print(wind_direction_set_interpolated_weird)
-                print()
                 
                 counter2_weird += 1
                 counter1_weird += 1
-                print(counter1_weird, counter2_weird)
                 continue
             elif time < epoch_set[0]:
-                print("EPOCHTIME", epoch_set[0])
                 x1, x2 = epoch_set[0], epoch_set[1]
                 y1, y2 = wind_speed_set[0], wind_speed_set[1]
                 y1_u, y2_u =  wind_vectors[0][0], wind_vectors[1][0] #for wind direction
@@ -436,19 +421,14 @@ def interpolate_wind_speed (stid, start, end):
                 
                 extrapolated_speed = y1 + slope * (time - x1)
                 extrapolated_u = y1_u + ((y2_u - y1_u) / (x2 - x1)) * (time - x1)
-                print(extrapolated_u)
                 extrapolated_v = y1_v + ((y2_v - y1_v) / (x2 - x1)) * (time - x1)
-                print(extrapolated_v)
 
                 wind_speed_set_interpolated.append(extrapolated_speed)
                 wind_direction_set_interpolated_weird.append(vector_to_wind_direction(extrapolated_u, extrapolated_v))
                 counter2_weird += 1
-                print("EXTRAPOLATION PERFORMED (BEFORE)")
-                print()
-                print(counter1_weird, counter2_weird)
                 continue
             elif time > epoch_set[-1]:
-                print("EPOCHTIME", epoch_set[-1])
+                
                 x1, x2 = epoch_set[-2], epoch_set[-1]
                 y1, y2 = wind_speed_set[-2], wind_speed_set[-1]
                 y1_u, y2_u =  wind_vectors[-2][0], wind_vectors[-1][0] #for wind direction
@@ -463,11 +443,7 @@ def interpolate_wind_speed (stid, start, end):
 
                 wind_speed_set_interpolated.append(extrapolated_speed)
                 wind_direction_set_interpolated_weird.append(vector_to_wind_direction(extrapolated_u, extrapolated_v))
-                print(wind_direction_set_interpolated_weird)
                 counter2_weird += 1
-                print("EXTRAPOLATION PERFORMED(AFTER)")
-                print()
-                print(counter1_weird, counter2_weird)
                 continue
 
             else:
@@ -479,19 +455,12 @@ def interpolate_wind_speed (stid, start, end):
                 f_u = interp1d(epoch_set, wind_vectors[:, 0], kind='linear')
                 f_v = interp1d(epoch_set, wind_vectors[:, 1], kind='linear')
                 interpolated_u = f_u(time)
-                print(interpolated_u)
                 interpolated_v = f_v(time)
-                print(interpolated_v)
+
                 wind_direction_set_interpolated_weird.append(vector_to_wind_direction(interpolated_u, interpolated_v))
-                print(wind_direction_set_interpolated_weird)
 
                 counter2_weird += 1
-                print("INTERPOLATION PERFORMED")
-                print()
-            
-            print(counter1_weird, counter2_weird)
 
-        
             #add missing start and end time and extrapolate to find their respective values
             '''
         if time_set_epoch0 != start_epoch:
