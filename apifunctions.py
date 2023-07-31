@@ -2,18 +2,13 @@ import os
 import json
 import math
 import pyproj
-import pandas as pd 
 import xml.etree.ElementTree as ET 
 import requests 
-import xml.dom.minidom as xdm
-import geojson
 import numpy as np
 import matplotlib.path as mplPath
 import datetime
-import time
 import matplotlib as mpl
-from scipy.interpolate import interp1d
-import scipy.interpolate
+from scipy.interpolate import CubicSpline
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -119,28 +114,35 @@ def apirequest(stid, start, end):
 
     #i know you (fabien) said not to use global variables, but having these will help me out with interpolation and make the code easier to be reused
     #also these variables will not be updated at all so it wont add to confusion :)
-    global time_set
-    time_set = result["STATION"][0]["OBSERVATIONS"]["date_time"]
+      
+    try:
+        global time_set
+        time_set = result["STATION"][0]["OBSERVATIONS"]["date_time"]
 
-    global wind_speed_set
-    wind_speed_set = result["STATION"][0]["OBSERVATIONS"]["wind_speed_set_1"]
+        global wind_speed_set
+        wind_speed_set = result["STATION"][0]["OBSERVATIONS"]["wind_speed_set_1"]
 
-    global wind_direction_set
-    wind_direction_set = result["STATION"][0]["OBSERVATIONS"]["wind_direction_set_1"]
-
-
-    none_indices = [i for i, (value1, value2) in enumerate(zip(wind_speed_set, wind_direction_set)) if value1 is None or value2 is None]
+        global wind_direction_set
+        wind_direction_set = result["STATION"][0]["OBSERVATIONS"]["wind_direction_set_1"]
+        none_indices = [i for i, (value1, value2) in enumerate(zip(wind_speed_set, wind_direction_set)) if value1 is None or value2 is None]
     
-    for index in reversed(none_indices):
-        del time_set[index]
-        del wind_speed_set[index]
-        del wind_direction_set[index]
+        for index in reversed(none_indices):
+            del time_set[index]
+            del wind_speed_set[index]
+            del wind_direction_set[index]
+
+    except KeyError:
+        result = None 
+        print(f"no data available for station:{stid}")
+
+
+    
 
     return result 
 
 #------------------------------------------------------------------------------
 
-def save_to_xml(result, choice, folder_name):
+def save_to_xml(result, decision, folder_name, direction_interp, speed_interp, new_time_set):
 
 #important: use the following line in implementation of this function
     '''
@@ -167,38 +169,14 @@ def save_to_xml(result, choice, folder_name):
 
         site_coord_flag = ET.SubElement(root, 'site_coord_flag')
         site_coord_flag.text = '3' #location of site in program determined by lat/lon
-
-        observations = result["STATION"][0]['OBSERVATIONS'] 
         
-        #determine if the station contains data for wind direction and speed
-        time_series = ET.SubElement(root, 'timeSeries')
-        try:
-                direction = ET.SubElement(time_series, 'direction')
-                direction.text = str(observations['wind_direction_set_1'])
-                global windtrue
-                windtrue = True
-        except KeyError:
-                windtrue = False
-                print()
-                print(f"*CAUTION* station: {id} does not record wind speed values (possibly for the given interval)")
-                print("all values set to none")
-                
-        try:
-                speed = ET.SubElement(time_series, 'speed')
-                speed.text = str(observations['wind_speed_set_1'])
-                global speedtrue
-                speedtrue = True
-        except KeyError:
-                speedtrue = False
-                print()
-                print(f"*CAUTION* station: {id} does not record wind speed values")
-                print("all values set to none")
+        time_series = ET.SubElement(root, 'timeSet')
 
-        for i in range(len(observations['date_time'])): #iterate through the timestamp and sensor variable lists so values can be output under their respective timestamp
+        for i in range(len(new_time_set)): #iterate through the timestamp and sensor variable lists so values can be output under their respective timestamp
             time_series = ET.SubElement(root, 'timeSeries')
 
             timeStamp = ET.SubElement(time_series, 'timeStamp')
-            timeStamp.text = observations['date_time'][i]
+            timeStamp.text = new_time_set[i]
 
             boundaryLayerFlag = ET.SubElement(time_series, 'boundaryLayerFlag')
             boundaryLayerFlag.text = '1'
@@ -212,21 +190,12 @@ def save_to_xml(result, choice, folder_name):
             height = ET.SubElement(time_series, 'height')
             height.text = '10.0'
             
-            if speedtrue:
-                speed = ET.SubElement(time_series, 'speed')
-                speed.text = str(observations['wind_speed_set_1'][i])
-            else:
-                speed = ET.SubElement(time_series, 'speed')
-                speed.text = 'none'
+            speed = ET.SubElement(time_series, 'speed')
+            speed.text = str(speed_interp[i])
             
-            if windtrue == True:
-                direction = ET.SubElement(time_series, 'direction')
-                direction.text = str(observations['wind_direction_set_1'][i])
-            else:
-                direction = ET.SubElement(time_series, 'direction')
-                direction.text = 'none'
+            direction = ET.SubElement(time_series, 'direction')
+            direction.text = str(direction_interp[i])
 
-                
             tree = ET.ElementTree(root)
     else: 
         raise ValueError("no data found for specified station")
@@ -237,15 +206,6 @@ def save_to_xml(result, choice, folder_name):
     ET.indent(tree, '  ')
     
     #allow the user to choose if they would like the data to be saved as a file 
-    decision = None
-
-    if choice == "Y":
-        decision = True
-    elif choice == "N": 
-        decision = False
-    else: 
-        raise KeyError("Please enter either \"Y\" or \"N\"")
-    
     
     if decision == True:
         
@@ -298,10 +258,10 @@ def convert_to_epoch_time_utc(times):
 def epoch_to_utc_time(epoch_time):
     try:
         # Convert epoch_time to a datetime object in UTC timezone
-        utc_datetime = datetime.utcfromtimestamp(epoch_time)
+        utc_datetime = datetime.datetime.utcfromtimestamp(epoch_time)
 
         # Format the datetime object as "YYYYmmDDHHMM"
-        formatted_time = utc_datetime.strftime("%Y%m%d%H%M")
+        formatted_time = utc_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         return formatted_time
     except ValueError:
@@ -357,20 +317,14 @@ def interpolate_wind_speed (interval, stid, start, end):
 
         wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
         wind_vectors = np.array(wind_vectors)
-
-        epoch_set = np.array(epoch_set)
         
-        f_u = interp1d(epoch_set, wind_vectors[:, 0], kind='linear', fill_value = "extrapolate")
-        f_v = interp1d(epoch_set, wind_vectors[:, 1], kind='linear', fill_value = "extrapolate")
+        #f_dir = interp1d(epoch_set, wind_direction_set, kind='cubic', assume_sorted=False, fill_value="extrapolate")
+        f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
+        wind_direction_set_interpolated = f_dir(new_time_set)
 
-        interpolate_u = f_u(new_time_set)
-        interpolate_v = f_v(new_time_set)
-
-        interpolated_wind_vectors = np.column_stack((interpolate_u, interpolate_v))
-
-        interpolated_directions = [vector_to_wind_direction(vector[0], vector[1]) for vector in interpolated_wind_vectors]
+        wind_direction_set_interpolated = f_dir(new_time_set)
             
-        return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, interpolated_directions, wind_direction_set
+        return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
      #handle interpolation for weird stations
     else:
         print("------------WARNING------------ ")
@@ -380,10 +334,13 @@ def interpolate_wind_speed (interval, stid, start, end):
         new_time_set = np.arange(start_epoch, end_epoch + interval, interval)
         wind_speed_set_interpolated = np.interp(new_time_set, epoch_set, wind_speed_set)
 
+        wind_direction_radians = np.radians(wind_direction_set)
         #wind_direction_set_interpolated = np.interp(new_time_set, epoch_set, wind_direction_set)
-        f_dir = interp1d(epoch_set, wind_direction_set, kind='cubic', assume_sorted=False, fill_value="extrapolate")
-        wind_direction_set_interpolated = f_dir(new_time_set)
-    
+        f_dir = CubicSpline(epoch_set, wind_direction_radians, bc_type='clamped', extrapolate=True)
+        
+        wind_direction_set_radians = f_dir(new_time_set)
+        wind_direction_set_interpolated = np.degrees(wind_direction_set_radians) % 360
+
         return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
     
 
