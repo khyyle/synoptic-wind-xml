@@ -334,12 +334,11 @@ def interpolate_wind_speed (interval, stid, start, end):
         new_time_set = np.arange(start_epoch, end_epoch + interval, interval)
         wind_speed_set_interpolated = np.interp(new_time_set, epoch_set, wind_speed_set)
 
-        wind_direction_radians = np.radians(wind_direction_set)
         #wind_direction_set_interpolated = np.interp(new_time_set, epoch_set, wind_direction_set)
-        f_dir = CubicSpline(epoch_set, wind_direction_radians, bc_type='clamped', extrapolate=True)
+        f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
         
-        wind_direction_set_radians = f_dir(new_time_set)
-        wind_direction_set_interpolated = np.degrees(wind_direction_set_radians) % 360
+        wind_direction_set_interpolated = f_dir(new_time_set)
+        
 
         return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
     
