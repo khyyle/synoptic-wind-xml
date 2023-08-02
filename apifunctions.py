@@ -108,6 +108,7 @@ def apirequest(stid, start, end):
     
     if response.status_code ==200:
         result = response.json()
+        print(json.dumps(result, indent=4))
     else:
         print(response.status_code)
     #print(json.dumps(result, indent=4))
@@ -133,7 +134,7 @@ def apirequest(stid, start, end):
 
     except KeyError:
         result = None 
-        print(f"no data available for station:{stid}")
+        print(f" no data available for station:{stid}", "\n", "make sure the datetime you entered is correct and that the station id you entered is a viable station")
 
 
     
@@ -198,7 +199,7 @@ def save_to_xml(result, decision, folder_name, direction_interp, speed_interp, n
 
             tree = ET.ElementTree(root)
     else: 
-        raise ValueError("no data found for specified station")
+        raise LookupError("no data found for specified station", "\n", "make sure the datetime you entered is correct and that the station id you entered is a viable station")
 
     print()
     
@@ -272,11 +273,8 @@ def interpolate_wind_speed (interval, stid, start, end):
     interval = interval * 60
     epoch_set = convert_to_epoch_time_utc(time_set)
     
-    #if the timestamp for the specified interval already exists append its value to the windspeed list 
-    #if not then interpolate
+    #determine if the station is weird
     wind_speed_set_interpolated = []     
-    counter1 = 0 
-    counter2 = 0 
 
     normalstation = None
 
@@ -291,7 +289,7 @@ def interpolate_wind_speed (interval, stid, start, end):
         normalstation = True
     else:
         normalstation = False
-    
+    #create the appropriate time set 
     if normalstation == True:
         new_time_set = []
         i = 0
@@ -299,33 +297,41 @@ def interpolate_wind_speed (interval, stid, start, end):
         while new_time < epoch_set[-1]:
             new_time = epoch_set[0] + (i * interval)
             new_time_set.append(new_time)
-            i += 1  
-        for time in new_time_set:
-            if counter2 < len(epoch_set) and time == epoch_set[counter2]:
-                wind_speed_set_interpolated.append(wind_speed_set[counter1])
-                counter2 += 1
-                counter1 += 1
-                continue
-            else: 
-                interpolated_speed = np.interp(time, epoch_set, wind_speed_set)
-                wind_speed_set_interpolated.append(interpolated_speed)
-                counter2 += 1
-                
-
-    #---------------------------------------------------------------------------------------------------------------------
-        #handle interpolation for wind directions
-
-        wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
-        wind_vectors = np.array(wind_vectors)
+            i += 1
+    else:
+        new_time_set = np.arange(start_epoch, end_epoch + interval, interval)
+    
+    #to avoid weird speed values being reported determine if extrapolation is needed or not
+    if new_time_set[-1] > epoch_set[-1]:
+        f_speed = CubicSpline(epoch_set, wind_speed_set, extrapolate='periodic')
+        wind_speed_set_interpolated = f_speed(new_time_set)
+    else:
+        f_speed = CubicSpline(epoch_set,wind_speed_set,bc_type='clamped', extrapolate=True)
+    # Interpolate wind directions
         
-        #f_dir = interp1d(epoch_set, wind_direction_set, kind='cubic', assume_sorted=False, fill_value="extrapolate")
-        f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
-        wind_direction_set_interpolated = f_dir(new_time_set)
+    wind_speed_set_interpolated = f_speed(new_time_set)
+                
+    #interpolate wind directions
+    wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
+    wind_vectors = np.array(wind_vectors)
+    
+    f_u = CubicSpline(epoch_set, wind_vectors[:, 0], bc_type='clamped', extrapolate=True)
+    f_v = CubicSpline(epoch_set, wind_vectors[:, 1], bc_type='clamped', extrapolate=True)
 
-        wind_direction_set_interpolated = f_dir(new_time_set)
-            
-        return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
-     #handle interpolation for weird stations
+    interpolate_u = f_u(new_time_set)
+    interpolate_v = f_v(new_time_set)
+
+    wind_direction_set_interpolated = np.column_stack((interpolate_u, interpolate_v))
+    wind_direction_set_interpolated = [vector_to_wind_direction(u,v) for u,v in wind_direction_set_interpolated]
+
+
+    old_iso8601 = [epoch_to_utc_time(time) for time in epoch_set]
+    new_iso8601 = [epoch_to_utc_time(time) for time in new_time_set]
+        
+
+    return wind_speed_set_interpolated, new_time_set, wind_speed_set, wind_direction_set_interpolated, wind_direction_set, old_iso8601, new_iso8601
+     
+    '''
     else:
         print("------------WARNING------------ ")
         print(f"station:{stid} requires extrapolation")
@@ -334,15 +340,30 @@ def interpolate_wind_speed (interval, stid, start, end):
         new_time_set = np.arange(start_epoch, end_epoch + interval, interval)
         wind_speed_set_interpolated = np.interp(new_time_set, epoch_set, wind_speed_set)
 
-        #wind_direction_set_interpolated = np.interp(new_time_set, epoch_set, wind_direction_set)
-        f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
         
-        wind_direction_set_interpolated = f_dir(new_time_set)
+        #wind_direction_set_interpolated = np.interp(new_time_set, epoch_set, wind_direction_set)
+        #f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
+        
+        #wind_direction_set_interpolated = f_dir(new_time_set)
+        wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
+        wind_vectors = np.array(wind_vectors)
+
+        epoch_set = np.array(epoch_set)
+
+        f_u = CubicSpline(epoch_set, wind_vectors[:, 0], bc_type='clamped', extrapolate=True)
+        f_v = CubicSpline(epoch_set, wind_vectors[:, 1], bc_type='clamped', extrapolate=True)
+
+        interpolate_u = f_u(new_time_set)
+        interpolate_v = f_v(new_time_set)
+
+        wind_direction_set_interpolated = np.column_stack((interpolate_u, interpolate_v))
+        wind_direction_set_interpolated = [vector_to_wind_direction(u,v) for u,v in wind_direction_set_interpolated]
+
         
 
         return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
     
-
+    '''
 
 def wind_direction_to_vector(wind_direction_degrees):
     # Convert degrees to radians
@@ -379,22 +400,6 @@ def extrapolate(x_known, x_known2, y_known, y_known2, x_target):
     y_target = y1 + slope * (x_target - x1) 
 
     return y_target
-'''
-if were avoid using extrapolation use this
- elif time > epoch_set[-1]:
-                start = epoch_to_utc_time(epoch_set[-1])
-                end = epoch_set[-1] + 7200 #add 2 hours to the last time in the original time set. 
-                end = convert_to_epoch_time_utc(end)
-                result = apirequest(stid, start, end)
-                print(result)
-
-                wind_speed_set2 = result["STATION"][0]["OBSERVATIONS"]["wind_speed_set_1"]
-                time_set2 = result["STATION"][0]["OBSERVATIONS"]["date_time"]
-
-                epoch_time_set2 = convert_to_epoch_time_utc(time_set2)
-                interpolated_speed = np.interp(time, epoch_time_set2 ,wind_speed_set2)
-                counter2 += 1
-'''
 
 #-------------------------------------------------------------------------------------
 
