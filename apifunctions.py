@@ -7,7 +7,6 @@ import requests
 import numpy as np
 import matplotlib.path as mplPath
 import datetime
-import matplotlib as mpl
 from scipy.interpolate import CubicSpline
 
 #return latitude longitude and whether the user entered a station id 
@@ -305,12 +304,24 @@ def interpolate_wind_speed (interval, stid, start, end):
     if new_time_set[-1] > epoch_set[-1]:
         f_speed = CubicSpline(epoch_set, wind_speed_set, extrapolate='periodic')
         wind_speed_set_interpolated = f_speed(new_time_set)
+    elif new_time_set[0] > epoch_set[0]:
+        f_speed = CubicSpline(epoch_set, wind_speed_set, extrapolate="periodic")
     else:
         f_speed = CubicSpline(epoch_set,wind_speed_set,bc_type='clamped', extrapolate=True)
     # Interpolate wind directions
-        
+    
+
     wind_speed_set_interpolated = f_speed(new_time_set)
-                
+    wind_speed_set_interpolated = wind_speed_set_interpolated.tolist()
+    
+    
+
+    #make sure there are no negative values
+    for speed in wind_speed_set_interpolated:
+        if speed < 0:
+            index = wind_speed_set_interpolated.index(speed)
+            wind_speed_set_interpolated[index] = 0 
+
     #interpolate wind directions
     wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
     wind_vectors = np.array(wind_vectors)
