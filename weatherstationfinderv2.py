@@ -2,7 +2,9 @@ import apifunctions as myfunc
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
- 
+import math
+
+
 #determine latitude, longitude, and whether a station id is being used or not
 stid = myfunc.determine_entry()
 print(stid)
@@ -29,7 +31,7 @@ for station in stid:
         continue
     else:
         speed_interp, new_time_set, old_speed, direction_interp, old_wind_direction, old_iso8601, new_iso8601  = myfunc.interpolate_wind_speed(interval, station, start, end)
-        
+
         datetime_old = [datetime.fromisoformat(timestamp) for timestamp in old_iso8601]
         datetime_new = [datetime.fromisoformat(timestamp) for timestamp in new_iso8601]
         

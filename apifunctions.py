@@ -7,7 +7,7 @@ import requests
 import numpy as np
 import matplotlib.path as mplPath
 import datetime
-from scipy.interpolate import CubicSpline
+from scipy.interpolate import interp1d
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -302,12 +302,12 @@ def interpolate_wind_speed (interval, stid, start, end):
     
     #to avoid weird speed values being reported determine if extrapolation is needed or not
     if new_time_set[-1] > epoch_set[-1]:
-        f_speed = CubicSpline(epoch_set, wind_speed_set, extrapolate='periodic')
+        f_speed = interp1d(epoch_set, wind_speed_set, kind="linear", fill_value="extrapolate")
         wind_speed_set_interpolated = f_speed(new_time_set)
     elif new_time_set[0] > epoch_set[0]:
-        f_speed = CubicSpline(epoch_set, wind_speed_set, extrapolate="periodic")
+        f_speed = interp1d(epoch_set, wind_speed_set, kind="linear", fill_value="extrapolate")
     else:
-        f_speed = CubicSpline(epoch_set,wind_speed_set,bc_type='clamped', extrapolate=True)
+        f_speed = interp1d(epoch_set,wind_speed_set,kind="linear", fill_value="extrapolate")
     # Interpolate wind directions
     
 
@@ -323,80 +323,56 @@ def interpolate_wind_speed (interval, stid, start, end):
             wind_speed_set_interpolated[index] = 0 
 
     #interpolate wind directions
-    wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
+    #wind_vectors = [wind_direction_to_vector(direction, speed) for direction,speed in zip(wind_direction_set, wind_speed_set)]
+    wind_vectors = []
+    for index, direction in enumerate(wind_direction_set):
+        vector  = wind_direction_to_vector(direction, wind_speed_set[index])
+        wind_vectors.append(vector)
+
     wind_vectors = np.array(wind_vectors)
     
-    f_u = CubicSpline(epoch_set, wind_vectors[:, 0], bc_type='clamped', extrapolate=True)
-    f_v = CubicSpline(epoch_set, wind_vectors[:, 1], bc_type='clamped', extrapolate=True)
+
+
+    for index, time in enumerate(epoch_set):
+        try:
+            if (epoch_set[index+1] - time) > (interval * 5):
+                print("** interpolating large chunk of missing data **")
+                print(f"between {epoch_to_utc_time(time)} and {epoch_to_utc_time(epoch_set[index+1])} ")
+        except IndexError:
+            pass
+        
+    f_u = interp1d(epoch_set, wind_vectors[:, 0], kind="linear", fill_value="extrapolate")
+    f_v = interp1d(epoch_set, wind_vectors[:, 1], kind="linear", fill_value="extrapolate")
 
     interpolate_u = f_u(new_time_set)
     interpolate_v = f_v(new_time_set)
 
-    wind_direction_set_interpolated = np.column_stack((interpolate_u, interpolate_v))
-    wind_direction_set_interpolated = [vector_to_wind_direction(u,v) for u,v in wind_direction_set_interpolated]
+    wind_direction_set_interpolated_v = np.column_stack((interpolate_u, interpolate_v))
+    wind_direction_set_interpolated = [vector_to_wind_direction(u,v) for u,v in wind_direction_set_interpolated_v]
 
 
     old_iso8601 = [epoch_to_utc_time(time) for time in epoch_set]
     new_iso8601 = [epoch_to_utc_time(time) for time in new_time_set]
-        
-
+    
     return wind_speed_set_interpolated, new_time_set, wind_speed_set, wind_direction_set_interpolated, wind_direction_set, old_iso8601, new_iso8601
      
-    '''
-    else:
-        print("------------WARNING------------ ")
-        print(f"station:{stid} requires extrapolation")
-        print()
-                    
-        new_time_set = np.arange(start_epoch, end_epoch + interval, interval)
-        wind_speed_set_interpolated = np.interp(new_time_set, epoch_set, wind_speed_set)
+#-------------------------------------------------------------------------------------    
 
-        
-        #wind_direction_set_interpolated = np.interp(new_time_set, epoch_set, wind_direction_set)
-        #f_dir = CubicSpline(epoch_set, wind_direction_set, bc_type='clamped', extrapolate=True)
-        
-        #wind_direction_set_interpolated = f_dir(new_time_set)
-        wind_vectors = [wind_direction_to_vector(direction) for direction in wind_direction_set]
-        wind_vectors = np.array(wind_vectors)
-
-        epoch_set = np.array(epoch_set)
-
-        f_u = CubicSpline(epoch_set, wind_vectors[:, 0], bc_type='clamped', extrapolate=True)
-        f_v = CubicSpline(epoch_set, wind_vectors[:, 1], bc_type='clamped', extrapolate=True)
-
-        interpolate_u = f_u(new_time_set)
-        interpolate_v = f_v(new_time_set)
-
-        wind_direction_set_interpolated = np.column_stack((interpolate_u, interpolate_v))
-        wind_direction_set_interpolated = [vector_to_wind_direction(u,v) for u,v in wind_direction_set_interpolated]
-
-        
-
-        return wind_speed_set_interpolated, new_time_set, wind_speed_set, epoch_set, wind_direction_set_interpolated, wind_direction_set
-    
-    '''
-
-def wind_direction_to_vector(wind_direction_degrees):
+def wind_direction_to_vector(wind_direction_degrees, wind_speed):
     # Convert degrees to radians
     wind_direction_radians = math.radians(wind_direction_degrees)
-
+   
     # Calculate the x and y components of the wind vector
-    wind_vector_x = math.cos(wind_direction_radians)
-    wind_vector_y = math.sin(wind_direction_radians)
+    u = -(wind_speed) * math.sin(wind_direction_radians)
+    v = -(wind_speed) * math.cos(wind_direction_radians) 
 
     # Return the wind vector as a tuple (x, y)
-    return wind_vector_x, wind_vector_y
+    return u, v
 
 #-------------------------------------------------------------------------------------
 
-def vector_to_wind_direction(wind_vector_x, wind_vector_y):
-    # Calculate the wind direction in radians
-    wind_direction_radians = math.atan2(wind_vector_y, wind_vector_x)
-
-    wind_direction_degrees = math.degrees(wind_direction_radians)
-
-    # Ensure the wind direction is within [0, 360) degrees
-    wind_direction_degrees = (wind_direction_degrees + 360) % 360
+def vector_to_wind_direction(u, v):
+    wind_direction_degrees = (270.-180./math.pi*math.atan2(v,u)) %360 
 
     return wind_direction_degrees
 
