@@ -10,7 +10,7 @@ import datetime
 from scipy.interpolate import interp1d
 import time
 import pytz
-import pandas
+import copy
 
 #return latitude longitude and whether the user entered a station id 
 def determine_entry(): 
@@ -345,10 +345,107 @@ def interpolate_wind_speed (interval, time_set, wind_speed_set, wind_direction_s
 
         except IndexError:
             pass
+
+    #########################################################
+    #SET UP VARIABLES FOR TIME AVERAGING
+
+    interpolated_set_s = f_speed(new_time_set)
+
+    vector_set = np.column_stack((interpolate_u, interpolate_v))
+    interpolated_set_d = [vector_to_wind_direction(u,v) for u,v in vector_set]
+
+        
+    # create a list of every value so that we can 
+    # average where the interval does not end on a known value
             
+    # for speed
+    all_values = []
+    new_index = 0
+    old_index = 0
+    try:
+        while new_index < len(new_time_set) and old_index < len(epoch_set):
+            if new_time_set[new_index] <= epoch_set[old_index]:
+                all_values.append(interpolated_set_s[new_index])
+                new_index += 1
+            else:
+                all_values.append(wind_speed_set[old_index])
+                old_index += 1
+
+        # If there are remaining values in either list, add them to all_values
+        all_values.extend(interpolated_set_s[new_index:])
+        all_values.extend(wind_speed_set[old_index:])
+    except IndexError:
+        pass
+
+    # for direction  
+    all_values_dir = []
+    new_index2 = 0
+    old_index2 = 0      
+    try:
+        while new_index2 < len(new_time_set) and old_index2 < len(epoch_set):
+            if new_time_set[new_index2] <= epoch_set[old_index2]:
+                all_values_dir.append(interpolated_set_d[new_index2])
+                new_index2 += 1
+            else:
+                all_values_dir.append(wind_speed_set[old_index2])
+                old_index2 += 1
+
+        # If there are remaining values in either list, add them to all_values
+        all_values_dir.extend(interpolated_set_d[new_index2:])
+        all_values_dir.extend(wind_speed_set[old_index2:])
+    except IndexError:
+        pass
+
+    try:    
+        list = copy.deepcopy(new_time_set.tolist()) # convert numpy array to list
+    except AttributeError:
+        list = copy.deepcopy(new_time_set)
     
+    list.extend(epoch_set)
+    list = set(list)
+    all_times = sorted(list)
+    print(all_times)
+
+    try:
+        dict_speed = {
+            "alltimes": all_times,
+            "allspeeds": all_values,
+            "apispeeds": wind_speed_set,
+            "interpspeed":interpolated_set_s,
+            "apitimes": epoch_set,
+            "interptimes": new_time_set.tolist()
+        }
+
+        dict_dir = {
+            "alltimes": all_times, 
+            "alldir": all_values_dir,
+            "apidirs": wind_direction_set,
+            "interpdir":interpolated_set_d,
+            "apitimes": epoch_set,
+            "interptimes": new_time_set.tolist()
+        }
+    except AttributeError:
+        dict_speed = {
+            "alltimes": all_times,
+            "allspeeds": all_values,
+            "apispeeds": wind_speed_set,
+            "interpspeed":interpolated_set_s,
+            "apitimes": epoch_set,
+            "interptimes": new_time_set
+        }
+
+        dict_dir = {
+            "alltimes": all_times, 
+            "alldir": all_values_dir,
+            "apidirs": wind_direction_set,
+            "interpdir":interpolated_set_d,
+            "apitimes": epoch_set,
+            "interptimes": new_time_set
+        }
+##################################################################
     #implement time averaging
-    if time_averaging == "Y" and normalstation == True:
+    '''
+    if time_averaging == "Y": #and normalstation == True:
         for index, time in enumerate(new_time_set):
             if index == 0:
                 wind_speed_set_interpolated.append(wind_speed_set[0])
@@ -395,92 +492,14 @@ def interpolate_wind_speed (interval, time_set, wind_speed_set, wind_direction_s
                 averaged_dir = values_dir / count_dir
                 wind_direction_set_interpolated.append(averaged_dir)
                 
-            
-    elif time_averaging == "Y" and normalstation == False:
+    '''        
+    if time_averaging == "Y": #and normalstation == False:
         # utilize interpolation so we can still average when we need to find an average between an odd interval
-        interpolated_set_s = f_speed(new_time_set)
-
-        vector_set = np.column_stack((interpolate_u, interpolate_v))
-        interpolated_set_d = [vector_to_wind_direction(u,v) for u,v in vector_set]
-
-        #handle the first data point which we never average
         
-       
-
-        
-        # create a list of every value so that we can 
-        # average where the interval does not end on a known value
-            
-        # for speed
-        all_values = []
-        new_index = 0
-        old_index = 0
-        try:
-            while new_index < len(new_time_set) and old_index < len(epoch_set):
-                if new_time_set[new_index] <= epoch_set[old_index]:
-                    all_values.append(interpolated_set_s[new_index])
-                    new_index += 1
-                else:
-                    all_values.append(wind_speed_set[old_index])
-                    old_index += 1
-
-            # If there are remaining values in either list, add them to all_values
-            all_values.extend(interpolated_set_s[new_index:])
-            all_values.extend(wind_speed_set[old_index:])
-        except IndexError:
-            pass
-
-        # for direction  
-        all_values_dir = []
-        new_index2 = 0
-        old_index2 = 0      
-        try:
-            while new_index2 < len(new_time_set) and old_index2 < len(epoch_set):
-                if new_time_set[new_index2] <= epoch_set[old_index2]:
-                    all_values_dir.append(interpolated_set_d[new_index2])
-                    new_index2 += 1
-                else:
-                    all_values_dir.append(wind_speed_set[old_index2])
-                    old_index2 += 1
-
-            # If there are remaining values in either list, add them to all_values
-            all_values_dir.extend(interpolated_set_d[new_index2:])
-            all_values_dir.extend(wind_speed_set[old_index2:])
-        except IndexError:
-            pass
-        print(new_time_set)
-        print()
-        print(epoch_set)
-        print()
-        
-        list = new_time_set.tolist() # convert numpy array to list
-        print(list)
-        print(epoch_set)
-        list.extend(epoch_set)
-        list = set(list)
-        all_times = sorted(list)
-        print(all_times)
-
-        dict_speed = {
-            "alltimes": all_times,
-            "allspeeds": all_values,
-            "apispeeds": wind_speed_set,
-            "interpspeed":interpolated_set_s,
-            "apitimes": epoch_set,
-            "interptimes": new_time_set.tolist()
-        }
-
-        dict_dir = {
-            "alltimes": all_times, 
-            "alldir": all_values_dir,
-            "apidirs": wind_direction_set,
-            "interpdir":interpolated_set_d,
-            "apitimes": epoch_set,
-            "interptimes": new_time_set.tolist()
-        }
                 
         # now we have all_times, all vals for direction, all vals for speed
 
+        print(new_time_set)
         for index, time in enumerate(new_time_set):
             # handle the first point which could be either an interpolated or known time
             if index == 0:
@@ -497,62 +516,53 @@ def interpolate_wind_speed (interval, time_set, wind_speed_set, wind_direction_s
                     if new_time_set[index-1] <= t <= time:
                         times_to_avg.append(t)
                 
-                print(times_to_avg)
+                print("TIMES", times_to_avg)
                 values_speed = []
                 values_dir = []
 
-                
-                for index3, time in enumerate(times_to_avg[:-1]):
-                    #handle the first value which could be either an interpolated or known value
-                    if index3 == 0 and time in epoch_set:
-                        index_ = dict_speed["apitimes"].index(time)
-                        values_speed .append( dict_speed["apispeeds"][index_]) # speed
-                        values_dir.append( dict_dir["apidirs"][index_]) # direction
-                        
+                if times_to_avg:
+                    for index3, time in enumerate(times_to_avg[:-1]):
+                        #handle the first value which could be either an interpolated or known value
+                        if index3 == 0 and time in epoch_set:
+                            index_ = dict_speed["apitimes"].index(time)
+                            values_speed .append( dict_speed["apispeeds"][index_]) # speed
+                            values_dir.append( dict_dir["apidirs"][index_]) # direction
+                            
 
-                    elif index3 == 0 and time in new_time_set:
-                        index_ = dict_speed["interptimes"].index(time)
-                        values_speed.append( dict_speed["interpspeed"][index_]) # speed
-                        values_dir.append( dict_dir["interpdir"][index_]) # direction
+                        elif index3 == 0 and time in new_time_set:
+                            index_ = dict_speed["interptimes"].index(time)
+                            values_speed.append( dict_speed["interpspeed"][index_]) # speed
+                            values_dir.append( dict_dir["interpdir"][index_]) # direction
+
+                        else: 
+                            if time in epoch_set:
+                                index = epoch_set.index(time)
+                                values_speed.append(wind_speed_set[index])
+                                values_dir.append( wind_direction_set[index])
+
+                    
+                #handle the last value which could be either an interpolated or known time
+                    if times_to_avg[-1] in dict_speed["apitimes"]:
+                        index = dict_speed["apitimes"].index(times_to_avg[-1]) 
+                        values_speed.append(dict_speed["apispeeds"][index]) # speed
+                        values_dir .append(dict_dir["apidirs"][index]) # direction
+
 
                     else: 
-                        if time in epoch_set:
-                            index = epoch_set.index(time)
-                            values_speed.append(wind_speed_set[index])
-                            values_dir.append( wind_direction_set[index])
+                        index = dict_speed["interptimes"].index(times_to_avg[-1]) 
+                        values_speed.append(dict_speed["interpspeed"][index])
+                        values_dir.append(dict_dir["interpdir"][index])
 
-                
-            #handle the last value which could be either an interpolated or known time
-                if times_to_avg[-1] in dict_speed["apitimes"]:
-                    index = dict_speed["apitimes"].index(times_to_avg[-1]) 
-                    values_speed.append(dict_speed["apispeeds"][index]) # speed
-                    values_dir .append(dict_dir["apidirs"][index]) # direction
+                    print("SPEEDS", values_speed)
+                    print("DIRECTIONS", values_dir)
+                    print()
 
+                    speed_avg = sum(values_speed) / len(values_speed)
+                    wind_avg = sum(values_dir) / len(values_dir)
 
-                else: 
-                    index = dict_speed["interptimes"].index(times_to_avg[-1]) 
-                    values_speed.append(dict_speed["interpspeed"][index])
-                    values_dir.append(dict_dir["interpdir"][index])
-                print("speeds")
-                print(values_speed)
-                print()
-                print("directions")
-                print(values_dir)
+                    wind_speed_set_interpolated.append(speed_avg)
+                    wind_direction_set_interpolated.append(wind_avg)
 
-                speed_avg = sum(values_speed) / len(values_speed)
-                wind_avg = sum(values_dir) / len(values_dir)
-
-                wind_speed_set_interpolated.append(speed_avg)
-                wind_direction_set_interpolated.append(wind_avg)
-
-
-                
-                
-
-
-
-
-                        
             '''
             for index, time in enumerate(new_time_set):
                 index_avg = []
@@ -602,10 +612,8 @@ def interpolate_wind_speed (interval, time_set, wind_speed_set, wind_direction_s
             wind_speed_set_interpolated.append(averaged_speed)
 
             averaged_dir = values_dir / count_dir
-            wind_direction_set_interpolated.append(averaged_dir)
-
-            
-            '''
+            wind_direction_set_interpolated.append(averaged_dir)           
+    '''
 
     elif time_averaging == "N":
         #populate wind direction set
@@ -625,16 +633,17 @@ def interpolate_wind_speed (interval, time_set, wind_speed_set, wind_direction_s
 
     else:
         raise KeyError("Please enter either \"Y\" or \"N\"")
-
-
+    
+    
     print("direction")
     print(wind_direction_set_interpolated)
     print("speed")
     print(wind_speed_set_interpolated)
-    '''
+    
+    
    
     
-    
+    '''
 
     #make sure there are no negative values
     for speed in wind_speed_set_interpolated:
