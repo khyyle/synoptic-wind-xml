@@ -137,12 +137,16 @@ def apirequest(stid, start, end):
             del time_set[index]
             del wind_speed_set[index]
             del wind_direction_set[index]
-    except KeyError:
+    except (KeyError, IndexError):
         result = None 
+
+        time_set = None
+
+        wind_speed_set = None
+
+        wind_direction_set = None
+
         print(f" no data available for station:{stid}", "\n", "make sure the datetime you entered is correct and that the station id you entered is a viable station")
-
-
-    
 
     return result, time_set, wind_speed_set, wind_direction_set
 
