@@ -17,7 +17,7 @@ else:
     raise KeyError("Please enter either \"Y\" or \"N\"")
 
 folder_name = input("Enter a folder name to save the XML files in:")
-interval = int(input("enter desired interval for wind speeds and directions (in full minutes):"))
+interval = int(input("enter desired interval for wind speeds and directions (in minutes--can be a decimal):"))
 length = len(stidlist)
 
 for station in stidlist:
