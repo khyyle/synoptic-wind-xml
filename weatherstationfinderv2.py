@@ -9,7 +9,7 @@ import math
 stid = myfunc.determine_entry()
 print(stid)
 print()
-print("--enter time in current timezone--")
+print("--enter time in UTC, hours are in military time--")
 start = input("enter a starting date and time to pull wind data from (YYYYmmddHHMM):") # 
 end =  input(" enter a end date and time to pull wind data from (YYYYmmddHHMM):") 
 choice =  input(f"would you like to save data for {len(stid)} stations? (Y/N):") 
@@ -26,11 +26,11 @@ interval = float(input("enter desired interval for wind speeds and directions (i
 length = len(stid)
 #iterate through the list of station ids and pull data for each one 
 for station in stid:
-    result = myfunc.apirequest(station, start, end)
+    result, time_set, wind_speed_set, wind_direction_set = myfunc.apirequest(station, start, end)
     if result == None:
         continue
     else:
-        speed_interp, new_time_set, old_speed, direction_interp, old_wind_direction, old_iso8601, new_iso8601  = myfunc.interpolate_wind_speed(interval, station, start, end)
+        speed_interp, new_time_set, old_speed, direction_interp, old_wind_direction, old_iso8601, new_iso8601  = myfunc.interpolate_wind_speed(interval, time_set, wind_speed_set, wind_direction_set, start, end, stid)
 
         datetime_old = [datetime.fromisoformat(timestamp) for timestamp in old_iso8601]
         datetime_new = [datetime.fromisoformat(timestamp) for timestamp in new_iso8601]
@@ -43,7 +43,7 @@ for station in stid:
         plt.title('wind directions graphed')
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d %H:%M:%S"))  
         plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator()) 
-        plt.xticks(rotation=20)
+        plt.xticks(rotation=17)
         plt.grid(True)
         plt.legend()   
         plt.savefig(f'direction_{station}.pdf')
