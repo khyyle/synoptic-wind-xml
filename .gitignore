@@ -1,0 +1,14 @@
+# allowlist to ensure tool outputs are ignored should they be placed at
+# the same root as this repository
+*
+!*/
+!.gitignore
+!.env.example
+!README.md
+!pyproject.toml
+!uv.lock
+!*.py
+
+.venv/
+.ruff_cache/
+__pycache__/
